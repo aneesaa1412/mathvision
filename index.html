@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Curve Fitting — Interactive Demonstration</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#f6f5f1; --panel:#ffffff; --ink:#1d1f24; --muted:#6b6f78; --line:#e3e1da;
+    --pt:#2f5bd3; --fit:#d6452f; --res:#2a9d5c; --gd:#8a4fd8; --accent:#1d1f24;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:"IBM Plex Sans",system-ui,sans-serif;font-size:15px;line-height:1.45}
+  header{padding:22px 28px 6px;max-width:1240px;margin:0 auto}
+  h1{margin:0;font-size:24px;font-weight:600;letter-spacing:-.2px}
+  header p{margin:4px 0 0;color:var(--muted);max-width:780px}
+  main{max-width:1240px;margin:0 auto;padding:14px 28px 32px;display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:20px}
+  @media (max-width:960px){main{grid-template-columns:1fr}}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px}
+  .card h2{font-size:13px;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin:0 0 10px;font-weight:600}
+  #plotWrap{position:relative}
+  #plot{width:100%;aspect-ratio:4/3;display:block;border-radius:6px;cursor:crosshair;background:#fff;touch-action:none}
+  .hint{font-size:13px;color:var(--muted);margin-top:8px}
+  .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px}
+  label{font-size:13px;color:var(--muted)}
+  select,button,input[type=range]{font:inherit}
+  select{padding:7px 10px;border:1px solid var(--line);border-radius:6px;background:#fff;min-width:0;flex:1}
+  button{padding:7px 12px;border:1px solid var(--ink);background:#fff;border-radius:6px;cursor:pointer;font-size:14px}
+  button:hover{background:var(--ink);color:#fff}
+  button.primary{background:var(--ink);color:#fff}
+  button.primary:hover{opacity:.85}
+  button:disabled{opacity:.4;cursor:not-allowed}
+  .eq{font-family:"IBM Plex Mono",monospace;font-size:15px;background:#faf9f6;border:1px solid var(--line);border-radius:6px;padding:10px 12px;word-break:break-word;min-height:42px}
+  .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px}
+  .stat{background:#faf9f6;border:1px solid var(--line);border-radius:6px;padding:8px}
+  .stat b{display:block;font-family:"IBM Plex Mono",monospace;font-size:17px;font-weight:500}
+  .stat span{font-size:12px;color:var(--muted)}
+  .toggles{display:flex;flex-direction:column;gap:6px;margin-top:4px}
+  .toggles label{color:var(--ink);font-size:14px;display:flex;gap:8px;align-items:center;cursor:pointer}
+  .side{display:flex;flex-direction:column;gap:16px}
+  #steps{font-family:"IBM Plex Mono",monospace;font-size:13px;line-height:1.6;white-space:pre-wrap;background:#faf9f6;border:1px solid var(--line);border-radius:6px;padding:10px 12px;max-height:290px;overflow:auto}
+  #cost{width:100%;height:120px;display:block;background:#faf9f6;border:1px solid var(--line);border-radius:6px}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:13px;color:var(--muted);margin-top:8px}
+  .sw{display:inline-block;width:14px;height:3px;vertical-align:middle;margin-right:5px;border-radius:2px}
+  .explain{grid-column:1/-1}
+  .explain-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:14px}
+  .explain h3{font-size:15px;margin:0 0 4px}
+  .explain p{margin:0;color:#3d4048;font-size:14px}
+  .tooltip{position:absolute;pointer-events:none;background:var(--ink);color:#fff;font:12px "IBM Plex Mono",monospace;padding:3px 7px;border-radius:4px;transform:translate(10px,-28px);display:none;white-space:nowrap}
+  .degRow{display:none}
+</style>
+</head>
+<body>
+<header>
+  <h1>Curve Fitting — How Least Squares Works</h1>
+  <p>Place data points on the graph and watch a model fitted to them in real time. The fitted curve is the one that makes the sum of squared vertical distances (the residuals) as small as possible.</p>
+</header>
+
+<main>
+  <section class="card">
+    <div id="plotWrap">
+      <canvas id="plot" aria-label="Curve fitting plot"></canvas>
+      <div class="tooltip" id="tip"></div>
+    </div>
+    <div class="legend">
+      <span><i class="sw" style="background:var(--pt);height:8px;width:8px;border-radius:50%"></i>Data point</span>
+      <span><i class="sw" style="background:var(--fit)"></i>Fitted curve</span>
+      <span><i class="sw" style="background:var(--res)"></i>Residual (error)</span>
+      <span><i class="sw" style="background:var(--gd)"></i>Gradient-descent line</span>
+    </div>
+    <p class="hint"><b>Click</b> to add a point · <b>drag</b> a point to move it · <b>double-click</b> or <b>right-click</b> a point to delete it.</p>
+  </section>
+
+  <aside class="side">
+    <div class="card">
+      <h2>Model</h2>
+      <div class="row">
+        <select id="model">
+          <option value="linear">Linear — y = a + bx</option>
+          <option value="poly">Polynomial — y = a₀ + a₁x + … + aₙxⁿ</option>
+          <option value="exp">Exponential — y = a·e^(bx)</option>
+          <option value="log">Logarithmic — y = a + b·ln x</option>
+          <option value="power">Power — y = a·x^b</option>
+        </select>
+      </div>
+      <div class="row degRow" id="degRow">
+        <label for="deg">Degree <b id="degVal">2</b></label>
+        <input type="range" id="deg" min="1" max="8" value="2" style="flex:1">
+      </div>
+      <div class="eq" id="eq">Add at least 2 points</div>
+      <div class="stats">
+        <div class="stat"><b id="r2">—</b><span>R²</span></div>
+        <div class="stat"><b id="sse">—</b><span>SSE</span></div>
+        <div class="stat"><b id="rmse">—</b><span>RMSE</span></div>
+      </div>
+      <div class="toggles" style="margin-top:12px">
+        <label><input type="checkbox" id="showRes" checked> Show residuals</label>
+        <label><input type="checkbox" id="showSq"> Show squared errors as squares</label>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Data</h2>
+      <div class="row">
+        <select id="preset">
+          <option value="">Load a sample dataset…</option>
+          <option value="linear">Roughly linear</option>
+          <option value="quad">Curved (quadratic)</option>
+          <option value="exp">Exponential growth</option>
+          <option value="log">Diminishing returns</option>
+          <option value="sine">Wavy (try high degree)</option>
+        </select>
+      </div>
+      <div class="row">
+        <button id="noise">Add noise</button>
+        <button id="random">Random points</button>
+        <button id="clear">Clear</button>
+      </div>
+      <div class="hint" id="count">0 points</div>
+    </div>
+
+    <div class="card">
+      <h2>Gradient descent (linear)</h2>
+      <p class="hint" style="margin:0 0 8px">Instead of solving the equations directly, start with a flat line and repeatedly nudge it downhill on the error surface.</p>
+      <div class="row">
+        <button class="primary" id="gdBtn">▶ Run</button>
+        <label for="lr">Learning rate <b id="lrVal">0.05</b></label>
+        <input type="range" id="lr" min="1" max="40" value="5" style="flex:1">
+      </div>
+      <canvas id="cost"></canvas>
+      <div class="hint" id="gdInfo">Iteration 0</div>
+    </div>
+  </aside>
+
+  <section class="card" style="grid-column:1/-1">
+    <h2>Step-by-step calculation</h2>
+    <div id="steps">Add points to see the calculation.</div>
+  </section>
+
+  <section class="card explain">
+    <h2>What is happening</h2>
+    <div class="explain-grid">
+      <div><h3>1 · Residuals</h3><p>For every point, the residual is the vertical gap between the observed y and the value the curve predicts: eᵢ = yᵢ − ŷᵢ.</p></div>
+      <div><h3>2 · Least squares</h3><p>The best curve minimises SSE = Σ eᵢ². Squaring makes all errors positive and penalises big misses more than small ones.</p></div>
+      <div><h3>3 · Normal equations</h3><p>Setting the derivative of SSE to zero gives a linear system (XᵀX)a = Xᵀy. Solving it gives the coefficients directly.</p></div>
+      <div><h3>4 · Linearising</h3><p>Exponential, log and power models are fitted by transforming the data (e.g. taking ln y) so the problem becomes a straight-line fit.</p></div>
+      <div><h3>5 · Goodness of fit</h3><p>R² = 1 − SSE/SST tells you the share of variation in y the model explains. 1 is a perfect fit, 0 is no better than the mean.</p></div>
+      <div><h3>6 · Overfitting</h3><p>A high-degree polynomial can pass through every point (R² → 1) but wiggles wildly between them. Simpler models often predict better.</p></div>
+    </div>
+  </section>
+</main>
+
+<script>
+(() => {
+  // ---------- State ----------
+  const XMIN = 0, XMAX = 10, YMIN = 0, YMAX = 10;
+  let pts = [];
+  let fit = null;          // {f:(x)=>y, coeffs, eq, steps}
+  let gd = null;           // gradient-descent state
+  let dragIdx = -1, hoverIdx = -1;
+
+  const $ = id => document.getElementById(id);
+  const canvas = $("plot"), ctx = canvas.getContext("2d");
+  const costC = $("cost"), cctx = costC.getContext("2d");
+
+  // ---------- Canvas sizing ----------
+  let W = 0, H = 0, PAD = {l:46, r:16, t:16, b:36};
+  function resize() {
+    const dpr = window.devicePixelRatio || 1;
+    const r = canvas.getBoundingClientRect();
+    W = r.width; H = r.height;
+    canvas.width = W * dpr; canvas.height = H * dpr;
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    const rc = costC.getBoundingClientRect();
+    costC.width = rc.width * dpr; costC.height = rc.height * dpr;
+    cctx.setTransform(dpr,0,0,dpr,0,0);
+    draw(); drawCost();
+  }
+  const sx = x => PAD.l + (x - XMIN) / (XMAX - XMIN) * (W - PAD.l - PAD.r);
+  const sy = y => H - PAD.b - (y - YMIN) / (YMAX - YMIN) * (H - PAD.t - PAD.b);
+  const ix = px => XMIN + (px - PAD.l) / (W - PAD.l - PAD.r) * (XMAX - XMIN);
+  const iy = py => YMIN + (H - PAD.b - py) / (H - PAD.t - PAD.b) * (YMAX - YMIN);
+
+  // ---------- Math ----------
+  function solve(A, b) {               // Gaussian elimination with partial pivoting
+    const n = b.length, M = A.map((r,i) => [...r, b[i]]);
+    for (let c = 0; c < n; c++) {
+      let p = c;
+      for (let r = c+1; r < n; r++) if (Math.abs(M[r][c]) > Math.abs(M[p][c])) p = r;
+      if (Math.abs(M[p][c]) < 1e-12) return null;
+      [M[c], M[p]] = [M[p], M[c]];
+      for (let r = 0; r < n; r++) if (r !== c) {
+        const f = M[r][c] / M[c][c];
+        for (let k = c; k <= n; k++) M[r][k] -= f * M[c][k];
+      }
+    }
+    return M.map((r,i) => r[n] / r[i]);
+  }
+
+  function polyFit(xs, ys, deg) {
+    const n = deg + 1;
+    const A = Array.from({length:n}, () => Array(n).fill(0));
+    const b = Array(n).fill(0);
+    for (let k = 0; k < xs.length; k++) {
+      const pw = [1]; for (let i = 1; i < 2*n; i++) pw.push(pw[i-1] * xs[k]);
+      for (let i = 0; i < n; i++) { b[i] += pw[i] * ys[k]; for (let j = 0; j < n; j++) A[i][j] += pw[i+j]; }
+    }
+    return { c: solve(A, b), A, b };
+  }
+
+  const f3 = v => (Math.abs(v) < 1e-3 && v !== 0) ? v.toExponential(2) : (+v.toFixed(3)).toString();
+  const sgn = v => v < 0 ? " − " + f3(-v) : " + " + f3(v);
+  const sup = n => String(n).split("").map(d => "⁰¹²³⁴⁵⁶⁷⁸⁹"[d]).join("");
+
+  function computeFit() {
+    const model = $("model").value;
+    const n = pts.length;
+    fit = null;
+    if (n < 2) return;
+    let xs = pts.map(p => p.x), ys = pts.map(p => p.y);
+    let s = "";
+
+    if (model === "linear" || model === "poly") {
+      const deg = model === "linear" ? 1 : +$("deg").value;
+      if (n < deg + 1) { fit = { error: `Need at least ${deg+1} points for degree ${deg}` }; return; }
+      const { c, A, b } = polyFit(xs, ys, deg);
+      if (!c) { fit = { error: "Points are degenerate (e.g. all same x)" }; return; }
+      if (deg === 1) {
+        const Sx = A[0][1], Sxx = A[1][1], Sy = b[0], Sxy = b[1];
+        s += `Model: y = a + b·x      (n = ${n})\n\n`;
+        s += `Σx  = ${f3(Sx)}\nΣy  = ${f3(Sy)}\nΣxy = ${f3(Sxy)}\nΣx² = ${f3(Sxx)}\n\n`;
+        s += `Normal equations:\n  n·a  + Σx·b  = Σy    →  ${n}a + ${f3(Sx)}b = ${f3(Sy)}\n  Σx·a + Σx²·b = Σxy   →  ${f3(Sx)}a + ${f3(Sxx)}b = ${f3(Sxy)}\n\n`;
+        s += `b = (nΣxy − ΣxΣy) / (nΣx² − (Σx)²)\n  = (${n}·${f3(Sxy)} − ${f3(Sx)}·${f3(Sy)}) / (${n}·${f3(Sxx)} − ${f3(Sx)}²)\n  = ${f3(c[1])}\n`;
+        s += `a = (Σy − bΣx) / n = (${f3(Sy)} − ${f3(c[1])}·${f3(Sx)}) / ${n} = ${f3(c[0])}\n`;
+      } else {
+        s += `Model: polynomial of degree ${deg}      (n = ${n})\n\nNormal equations (XᵀX)·a = Xᵀy, where entry (i,j) = Σx^(i+j):\n\n`;
+        A.forEach((row,i) => { s += "  [" + row.map(v => f3(v).padStart(10)).join(" ") + " ]  [a" + i + "]   [" + f3(b[i]).padStart(10) + " ]\n"; });
+        s += "\nSolved by Gaussian elimination:\n" + c.map((v,i) => `  a${i} = ${f3(v)}`).join("\n") + "\n";
+      }
+      const f = x => c.reduce((acc, v, i) => acc + v * Math.pow(x, i), 0);
+      let eq = "y = " + f3(c[0]);
+      for (let i = 1; i < c.length; i++) eq += sgn(c[i]) + "x" + (i > 1 ? sup(i) : "");
+      fit = { f, eq, steps: s };
+    } else if (model === "exp") {
+      if (ys.some(y => y <= 0)) { fit = { error: "Exponential fit needs all y > 0" }; return; }
+      const L = ys.map(Math.log);
+      const { c } = polyFit(xs, L, 1);
+      if (!c) { fit = { error: "Points are degenerate" }; return; }
+      const a = Math.exp(c[0]), bb = c[1];
+      s += `Model: y = a·e^(bx)\nTake logs:  ln y = ln a + b·x   → a straight line in (x, ln y)\n\n`;
+      s += pts.map((p,i) => `  x=${f3(p.x).padEnd(7)} y=${f3(p.y).padEnd(7)} ln y=${f3(L[i])}`).join("\n");
+      s += `\n\nLinear fit on (x, ln y):  ln a = ${f3(c[0])},  b = ${f3(bb)}\nSo a = e^${f3(c[0])} = ${f3(a)}\n`;
+      fit = { f: x => a * Math.exp(bb * x), eq: `y = ${f3(a)}·e^(${f3(bb)}x)`, steps: s };
+    } else if (model === "log") {
+      if (xs.some(x => x <= 0)) { fit = { error: "Log fit needs all x > 0" }; return; }
+      const L = xs.map(Math.log);
+      const { c } = polyFit(L, ys, 1);
+      if (!c) { fit = { error: "Points are degenerate" }; return; }
+      s += `Model: y = a + b·ln x\nSubstitute u = ln x  → y = a + b·u (a straight line in (u, y))\n\n`;
+      s += pts.map((p,i) => `  x=${f3(p.x).padEnd(7)} u=ln x=${f3(L[i]).padEnd(8)} y=${f3(p.y)}`).join("\n");
+      s += `\n\nLinear fit on (u, y):  a = ${f3(c[0])},  b = ${f3(c[1])}\n`;
+      fit = { f: x => x > 0 ? c[0] + c[1] * Math.log(x) : NaN, eq: `y = ${f3(c[0])}${sgn(c[1])}·ln x`, steps: s };
+    } else if (model === "power") {
+      if (xs.some(x => x <= 0) || ys.some(y => y <= 0)) { fit = { error: "Power fit needs all x > 0 and y > 0" }; return; }
+      const LX = xs.map(Math.log), LY = ys.map(Math.log);
+      const { c } = polyFit(LX, LY, 1);
+      if (!c) { fit = { error: "Points are degenerate" }; return; }
+      const a = Math.exp(c[0]);
+      s += `Model: y = a·x^b\nTake logs:  ln y = ln a + b·ln x  → a straight line in (ln x, ln y)\n\n`;
+      s += pts.map((p,i) => `  ln x=${f3(LX[i]).padEnd(8)} ln y=${f3(LY[i])}`).join("\n");
+      s += `\n\nLinear fit:  ln a = ${f3(c[0])},  b = ${f3(c[1])}\nSo a = e^${f3(c[0])} = ${f3(a)}\n`;
+      fit = { f: x => x > 0 ? a * Math.pow(x, c[1]) : NaN, eq: `y = ${f3(a)}·x^${f3(c[1])}`, steps: s };
+    }
+
+    // goodness of fit
+    const my = ys.reduce((a,b) => a+b, 0) / n;
+    let sse = 0, sst = 0;
+    const rows = [];
+    pts.forEach(p => { const yh = fit.f(p.x), e = p.y - yh; sse += e*e; sst += (p.y - my)**2; rows.push([p.x, p.y, yh, e]); });
+    fit.sse = sse; fit.rmse = Math.sqrt(sse / n); fit.r2 = sst > 0 ? 1 - sse / sst : 1;
+    fit.steps += `\nResiduals  eᵢ = yᵢ − ŷᵢ:\n     x        y        ŷ        e        e²\n` +
+      rows.map(r => "  " + [r[0],r[1],r[2],r[3],r[3]*r[3]].map(v => f3(v).padStart(8)).join(" ")).join("\n") +
+      `\n\nSSE = Σe² = ${f3(sse)}\nSST = Σ(y − ȳ)² = ${f3(sst)}   (ȳ = ${f3(my)})\nR²  = 1 − SSE/SST = ${f3(fit.r2)}\nRMSE = √(SSE/n) = ${f3(fit.rmse)}`;
+  }
+
+  // ---------- Drawing ----------
+  function draw() {
+    if (!W) return;
+    ctx.clearRect(0,0,W,H);
+    // grid
+    ctx.font = "12px IBM Plex Mono, monospace"; ctx.textAlign = "center"; ctx.textBaseline = "top";
+    for (let i = 0; i <= 10; i++) {
+      ctx.strokeStyle = i === 0 ? "#1d1f24" : "#eceae4"; ctx.lineWidth = i === 0 ? 1.5 : 1;
+      ctx.beginPath(); ctx.moveTo(sx(i), sy(YMIN)); ctx.lineTo(sx(i), sy(YMAX)); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(sx(XMIN), sy(i)); ctx.lineTo(sx(XMAX), sy(i)); ctx.stroke();
+      ctx.fillStyle = "#6b6f78";
+      ctx.fillText(i, sx(i), sy(0) + 6);
+      ctx.textAlign = "right"; ctx.textBaseline = "middle"; ctx.fillText(i, sx(0) - 8, sy(i));
+      ctx.textAlign = "center"; ctx.textBaseline = "top";
+    }
+    ctx.fillStyle = "#1d1f24"; ctx.font = "13px IBM Plex Sans, sans-serif";
+    ctx.fillText("x", sx(XMAX) - 6, sy(0) + 20);
+    ctx.save(); ctx.translate(14, sy(YMAX) + 8); ctx.fillText("y", 0, 0); ctx.restore();
+
+    ctx.save();
+    ctx.beginPath(); ctx.rect(PAD.l, PAD.t, W - PAD.l - PAD.r, H - PAD.t - PAD.b); ctx.clip();
+
+    const ok = fit && fit.f;
+    // squared errors
+    if (ok && $("showSq").checked) {
+      pts.forEach(p => {
+        const yh = fit.f(p.x); if (!isFinite(yh)) return;
+        const side = Math.abs(sy(p.y) - sy(yh));
+        const dir = p.x > (XMIN+XMAX)/2 ? -1 : 1;
+        ctx.fillStyle = "rgba(42,157,92,.12)"; ctx.strokeStyle = "rgba(42,157,92,.45)";
+        const x0 = sx(p.x), y0 = Math.min(sy(p.y), sy(yh));
+        ctx.fillRect(dir > 0 ? x0 : x0 - side, y0, side, side);
+        ctx.strokeRect(dir > 0 ? x0 : x0 - side, y0, side, side);
+      });
+    }
+    // residuals
+    if (ok && $("showRes").checked) {
+      ctx.strokeStyle = "#2a9d5c"; ctx.lineWidth = 1.6; ctx.setLineDash([4,3]);
+      pts.forEach(p => { const yh = fit.f(p.x); if (!isFinite(yh)) return;
+        ctx.beginPath(); ctx.moveTo(sx(p.x), sy(p.y)); ctx.lineTo(sx(p.x), sy(yh)); ctx.stroke(); });
+      ctx.setLineDash([]);
+    }
+    // fitted curve
+    if (ok) {
+      ctx.strokeStyle = "#d6452f"; ctx.lineWidth = 2.6; ctx.beginPath();
+      let pen = false;
+      for (let px = PAD.l; px <= W - PAD.r; px += 1.5) {
+        const y = fit.f(ix(px));
+        if (!isFinite(y) || Math.abs(y) > 1e4) { pen = false; continue; }
+        const Y = Math.max(-1e4, Math.min(1e4, sy(y)));
+        pen ? ctx.lineTo(px, Y) : ctx.moveTo(px, Y); pen = true;
+      }
+      ctx.stroke();
+    }
+    // gradient-descent line
+    if (gd) {
+      ctx.strokeStyle = "#8a4fd8"; ctx.lineWidth = 2.2; ctx.setLineDash([8,5]);
+      ctx.beginPath(); ctx.moveTo(sx(XMIN), sy(gd.a + gd.b*XMIN)); ctx.lineTo(sx(XMAX), sy(gd.a + gd.b*XMAX)); ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    ctx.restore();
+
+    // points
+    pts.forEach((p, i) => {
+      ctx.beginPath(); ctx.arc(sx(p.x), sy(p.y), i === hoverIdx || i === dragIdx ? 8 : 6, 0, Math.PI*2);
+      ctx.fillStyle = "#2f5bd3"; ctx.fill();
+      ctx.lineWidth = 2; ctx.strokeStyle = "#fff"; ctx.stroke();
+    });
+
+    if (fit && fit.error) {
+      ctx.fillStyle = "#d6452f"; ctx.font = "14px IBM Plex Sans, sans-serif"; ctx.textAlign = "center";
+      ctx.fillText(fit.error, (PAD.l + W - PAD.r)/2, PAD.t + 10);
+    }
+  }
+
+  function updatePanel() {
+    $("count").textContent = pts.length + (pts.length === 1 ? " point" : " points");
+    if (fit && fit.f) {
+      $("eq").textContent = fit.eq;
+      $("r2").textContent = fit.r2.toFixed(4);
+      $("sse").textContent = f3(fit.sse);
+      $("rmse").textContent = f3(fit.rmse);
+      $("steps").textContent = fit.steps;
+    } else {
+      $("eq").textContent = fit && fit.error ? fit.error : "Add at least 2 points";
+      ["r2","sse","rmse"].forEach(id => $(id).textContent = "—");
+      $("steps").textContent = fit && fit.error ? fit.error : "Add points to see the calculation.";
+    }
+  }
+
+  function refresh() { computeFit(); updatePanel(); draw(); }
+
+  // ---------- Interaction ----------
+  function pos(e) { const r = canvas.getBoundingClientRect(); return { px: e.clientX - r.left, py: e.clientY - r.top }; }
+  function hit(px, py) {
+    for (let i = pts.length - 1; i >= 0; i--) if (Math.hypot(sx(pts[i].x) - px, sy(pts[i].y) - py) < 11) return i;
+    return -1;
+  }
+  const clampX = v => Math.max(XMIN + 0.05, Math.min(XMAX, v));
+  const clampY = v => Math.max(YMIN + 0.05, Math.min(YMAX, v));
+  let moved = false;
+
+  canvas.addEventListener("pointerdown", e => {
+    if (e.button === 2) return;
+    const { px, py } = pos(e);
+    const h = hit(px, py);
+    stopGD();
+    if (h >= 0) { dragIdx = h; moved = false; canvas.setPointerCapture(e.pointerId); }
+    else if (px > PAD.l && px < W - PAD.r && py > PAD.t && py < H - PAD.b) {
+      pts.push({ x: clampX(ix(px)), y: clampY(iy(py)) }); dragIdx = pts.length - 1; moved = true;
+      canvas.setPointerCapture(e.pointerId); refresh();
+    }
+  });
+  canvas.addEventListener("pointermove", e => {
+    const { px, py } = pos(e);
+    const tip = $("tip");
+    if (dragIdx >= 0) {
+      pts[dragIdx] = { x: clampX(ix(px)), y: clampY(iy(py)) }; moved = true; refresh();
+    } else {
+      const h = hit(px, py);
+      if (h !== hoverIdx) { hoverIdx = h; draw(); }
+      canvas.style.cursor = h >= 0 ? "grab" : "crosshair";
+    }
+    const i = dragIdx >= 0 ? dragIdx : hoverIdx;
+    if (i >= 0) {
+      const p = pts[i];
+      let t = `(${p.x.toFixed(2)}, ${p.y.toFixed(2)})`;
+      if (fit && fit.f) { const e2 = p.y - fit.f(p.x); if (isFinite(e2)) t += `  e = ${e2.toFixed(2)}`; }
+      tip.textContent = t; tip.style.display = "block";
+      tip.style.left = sx(p.x) + "px"; tip.style.top = sy(p.y) + "px";
+    } else tip.style.display = "none";
+  });
+  canvas.addEventListener("pointerup", () => { dragIdx = -1; draw(); });
+  canvas.addEventListener("pointerleave", () => { hoverIdx = -1; $("tip").style.display = "none"; draw(); });
+  function removeAt(e) {
+    const { px, py } = pos(e); const h = hit(px, py);
+    if (h >= 0) { pts.splice(h, 1); hoverIdx = -1; $("tip").style.display = "none"; stopGD(); refresh(); }
+  }
+  canvas.addEventListener("dblclick", removeAt);
+  canvas.addEventListener("contextmenu", e => { e.preventDefault(); removeAt(e); });
+
+  $("model").addEventListener("change", () => {
+    $("degRow").style.display = $("model").value === "poly" ? "flex" : "none";
+    refresh();
+  });
+  $("deg").addEventListener("input", () => { $("degVal").textContent = $("deg").value; refresh(); });
+  $("showRes").addEventListener("change", draw);
+  $("showSq").addEventListener("change", draw);
+
+  // ---------- Data presets ----------
+  const rnd = (a, b) => a + Math.random() * (b - a);
+  const gauss = () => { let u = 0, v = 0; while (!u) u = Math.random(); v = Math.random(); return Math.sqrt(-2*Math.log(u)) * Math.cos(2*Math.PI*v); };
+  const gen = (fn, noise, n = 14) => Array.from({length:n}, (_, i) => {
+    const x = 0.5 + i * (9 / (n - 1));
+    return { x, y: clampY(fn(x) + gauss() * noise) };
+  });
+  const presets = {
+    linear: { data: () => gen(x => 1.2 + 0.7*x, 0.6), model: "linear" },
+    quad:   { data: () => gen(x => 0.18*(x-5)**2 + 2, 0.4), model: "poly", deg: 2 },
+    exp:    { data: () => gen(x => 0.6*Math.exp(0.27*x), 0.25), model: "exp" },
+    log:    { data: () => gen(x => 2 + 2.6*Math.log(x), 0.3), model: "log" },
+    sine:   { data: () => gen(x => 5 + 2.5*Math.sin(x*0.9), 0.35, 18), model: "poly", deg: 5 },
+  };
+  $("preset").addEventListener("change", e => {
+    const p = presets[e.target.value]; if (!p) return;
+    stopGD(); pts = p.data();
+    $("model").value = p.model;
+    if (p.deg) { $("deg").value = p.deg; $("degVal").textContent = p.deg; }
+    $("degRow").style.display = p.model === "poly" ? "flex" : "none";
+    e.target.value = ""; refresh();
+  });
+  $("noise").addEventListener("click", () => { stopGD(); pts = pts.map(p => ({ x: p.x, y: clampY(p.y + gauss()*0.4) })); refresh(); });
+  $("random").addEventListener("click", () => {
+    stopGD();
+    const m = rnd(-0.6, 0.9), c = rnd(1, 5);
+    pts = Array.from({length:12}, () => { const x = rnd(0.5, 9.5); return { x, y: clampY(c + m*x + gauss()*0.9) }; });
+    refresh();
+  });
+  $("clear").addEventListener("click", () => { stopGD(); pts = []; refresh(); });
+
+  // ---------- Gradient descent ----------
+  $("lr").addEventListener("input", () => $("lrVal").textContent = ($("lr").value / 100).toFixed(2));
+
+  function stopGD() {
+    if (gd && gd.timer) clearInterval(gd.timer);
+    gd = null; $("gdBtn").textContent = "▶ Run"; $("gdInfo").textContent = "Iteration 0"; drawCost(); draw();
+  }
+  function drawCost() {
+    const w = costC.getBoundingClientRect().width, h = costC.getBoundingClientRect().height;
+    cctx.clearRect(0,0,w,h);
+    cctx.fillStyle = "#6b6f78"; cctx.font = "11px IBM Plex Mono, monospace";
+    cctx.fillText("cost (MSE) vs iteration", 8, 14);
+    if (!gd || gd.hist.length < 2) return;
+    const max = gd.hist[0] || 1, n = Math.max(gd.maxIt, gd.hist.length);
+    cctx.strokeStyle = "#8a4fd8"; cctx.lineWidth = 2; cctx.beginPath();
+    gd.hist.forEach((v, i) => {
+      const X = 8 + i / n * (w - 16), Y = h - 8 - Math.min(1, v / max) * (h - 28);
+      i ? cctx.lineTo(X, Y) : cctx.moveTo(X, Y);
+    });
+    cctx.stroke();
+  }
+  $("gdBtn").addEventListener("click", () => {
+    if (gd && gd.timer) { stopGD(); return; }
+    if (pts.length < 2) { $("gdInfo").textContent = "Add at least 2 points first."; return; }
+    // work on standardised x for stable steps, then convert back
+    const n = pts.length;
+    const mx = pts.reduce((s,p) => s+p.x, 0)/n;
+    const sdx = Math.sqrt(pts.reduce((s,p) => s+(p.x-mx)**2, 0)/n) || 1;
+    let w = 0, b0 = 0;   // y ≈ b0 + w·z, z = (x−mx)/sdx
+    const lr = $("lr").value / 100;
+    gd = { a: 0, b: 0, hist: [], it: 0, maxIt: 150 };
+    const step = () => {
+      let gw = 0, gb = 0, cost = 0;
+      pts.forEach(p => { const z = (p.x - mx)/sdx, e = (b0 + w*z) - p.y; gw += e*z; gb += e; cost += e*e; });
+      cost /= n; gd.hist.push(cost);
+      w -= lr * 2 * gw / n; b0 -= lr * 2 * gb / n;
+      gd.b = w / sdx; gd.a = b0 - w * mx / sdx; gd.it++;
+      $("gdInfo").textContent = `Iteration ${gd.it} · line y = ${f3(gd.a)}${sgn(gd.b)}x · MSE = ${f3(cost)}`;
+      draw(); drawCost();
+      if (gd.it >= gd.maxIt || (gd.hist.length > 5 && Math.abs(gd.hist.at(-2) - cost) < 1e-7) || !isFinite(cost)) {
+        clearInterval(gd.timer); gd.timer = null; $("gdBtn").textContent = "↺ Reset";
+        if (!isFinite(cost)) $("gdInfo").textContent += " — diverged! Try a smaller learning rate.";
+        else $("gdInfo").textContent += " — converged ✓";
+      }
+    };
+    gd.timer = setInterval(step, 55);
+    $("gdBtn").textContent = "■ Stop";
+  });
+  // Reset after finish
+  $("gdBtn").addEventListener("click", () => {}, true);
+
+  // ---------- Init ----------
+  window.addEventListener("resize", resize);
+  pts = presets.linear.data();
+  resize(); refresh();
+})();
+</script>
+</body>
+</html>
